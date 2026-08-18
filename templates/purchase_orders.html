@@ -1,0 +1,244 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Purchase Orders — Vendit Inventory</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+  <script src="/static/js/app.js"></script>
+  <script>
+    let products = [], suppliers = [];
+
+    if (requireAuth()) {
+      renderShell("/purchase_orders.html");
+      const main = document.getElementById("main-content");
+      main.innerHTML = `
+        <div class="page-header">
+          <div><h1>Purchase Orders</h1><p class="page-sub">Orders placed with suppliers, and receiving stock against them</p></div>
+          <button id="new-po-btn">+ New Purchase Order</button>
+        </div>
+        <div id="toast-area"></div>
+        <div class="toolbar">
+          <select id="status-filter">
+            <option value="">All statuses</option>
+            <option value="draft">Draft</option>
+            <option value="ordered">Ordered</option>
+            <option value="partially_received">Partially Received</option>
+            <option value="received">Received</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="card" style="padding:0;">
+          <table id="table">
+            <thead><tr><th>PO #</th><th>Supplier</th><th>Status</th><th class="num">Items</th><th>Ordered</th><th></th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById("status-filter").addEventListener("change", loadPOs);
+      document.getElementById("new-po-btn").addEventListener("click", openNewPOModal);
+      init();
+    }
+
+    async function init() {
+      try {
+        [products, suppliers] = await Promise.all([api("/products"), api("/suppliers")]);
+      } catch (err) { toast(err.message); }
+      loadPOs();
+    }
+
+    const STATUS_BADGE = {
+      draft: "gray", ordered: "amber", partially_received: "amber", received: "teal", cancelled: "red",
+    };
+    const STATUS_LABEL = {
+      draft: "Draft", ordered: "Ordered", partially_received: "Partially Received", received: "Received", cancelled: "Cancelled",
+    };
+
+    let pos = [];
+    async function loadPOs() {
+      const status = document.getElementById("status-filter").value;
+      const params = new URLSearchParams();
+      if (status) params.set("status", status);
+      try {
+        pos = await api("/purchase-orders?" + params.toString());
+        document.getElementById("table").querySelector("tbody").innerHTML = pos.map((p) => `
+          <tr>
+            <td>${escapeHtml(p.po_number)}</td>
+            <td>${escapeHtml(p.supplier_name)}</td>
+            <td><span class="badge ${STATUS_BADGE[p.status]}">${STATUS_LABEL[p.status]}</span></td>
+            <td class="num">${p.item_count}</td>
+            <td>${p.order_date || '—'}</td>
+            <td><button class="secondary small" onclick="viewPO(${p.id})">View</button></td>
+          </tr>
+        `).join("") || '<tr><td colspan="6" class="empty-state">No purchase orders yet.</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+
+    function productOptions() {
+      return products.map((p) => `<option value="${p.id}">${escapeHtml(p.name)} (${escapeHtml(p.sku)})</option>`).join("");
+    }
+
+    function lineItemRow(idx) {
+      return `
+        <div class="field-row line-item-row" data-idx="${idx}" style="align-items:flex-end;">
+          <div class="field" style="flex:2;"><label>${idx === 0 ? 'Product' : ''}</label><select class="li-product">${productOptions()}</select></div>
+          <div class="field" style="flex:1;"><label>${idx === 0 ? 'Qty' : ''}</label><input class="li-qty" type="number" min="1" value="1"></div>
+          <div class="field" style="flex:1;"><label>${idx === 0 ? 'Unit Cost' : ''}</label><input class="li-cost" type="number" min="0" step="0.01" value="0"></div>
+          <div class="field" style="flex:0 0 auto;"><button type="button" class="secondary small remove-row">✕</button></div>
+        </div>
+      `;
+    }
+
+    function openNewPOModal() {
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.innerHTML = `
+        <div class="modal">
+          <h2>New Purchase Order</h2>
+          <div id="modal-toast"></div>
+          <form id="form">
+            <div class="field">
+              <label>Supplier</label>
+              <select name="supplier_id" required>${suppliers.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}</select>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Order Date</label><input name="order_date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+              <div class="field"><label>Expected Date</label><input name="expected_date" type="date"></div>
+            </div>
+            <h2 style="margin-top:6px;">Line Items</h2>
+            <div id="line-items">${lineItemRow(0)}</div>
+            <button type="button" class="secondary small" id="add-row">+ Add Line</button>
+            <div class="field mt"><label>Notes</label><input name="notes"></div>
+            <div class="modal-actions">
+              <button type="button" class="secondary" id="cancel-btn">Cancel</button>
+              <button type="submit">Create Purchase Order</button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(backdrop);
+      let rowCount = 1;
+      backdrop.querySelector("#add-row").addEventListener("click", () => {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = lineItemRow(rowCount++);
+        backdrop.querySelector("#line-items").appendChild(wrap.firstElementChild);
+        attachRemoveHandlers(backdrop);
+      });
+      attachRemoveHandlers(backdrop);
+      backdrop.querySelector("#cancel-btn").addEventListener("click", () => backdrop.remove());
+      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
+
+      backdrop.querySelector("#form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const items = [...backdrop.querySelectorAll(".line-item-row")].map((row) => ({
+          product_id: parseInt(row.querySelector(".li-product").value, 10),
+          quantity_ordered: parseInt(row.querySelector(".li-qty").value, 10),
+          unit_cost: parseFloat(row.querySelector(".li-cost").value || "0"),
+        }));
+        const payload = {
+          supplier_id: parseInt(fd.get("supplier_id"), 10),
+          order_date: fd.get("order_date"),
+          expected_date: fd.get("expected_date") || null,
+          notes: fd.get("notes"),
+          items,
+        };
+        try {
+          await api("/purchase-orders", { method: "POST", body: JSON.stringify(payload) });
+          backdrop.remove();
+          toast("Purchase order created.", "success");
+          loadPOs();
+        } catch (err) {
+          backdrop.querySelector("#modal-toast").innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`;
+        }
+      });
+    }
+
+    function attachRemoveHandlers(scope) {
+      scope.querySelectorAll(".remove-row").forEach((btn) => {
+        btn.onclick = () => {
+          const rows = scope.querySelectorAll(".line-item-row");
+          if (rows.length > 1) btn.closest(".line-item-row").remove();
+        };
+      });
+    }
+
+    async function viewPO(id) {
+      const po = await api(`/purchase-orders/${id}`);
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      const canReceive = ["ordered", "partially_received"].includes(po.status);
+      const canMarkOrdered = po.status === "draft";
+      backdrop.innerHTML = `
+        <div class="modal">
+          <h2>${escapeHtml(po.po_number)} — ${escapeHtml(po.supplier_name)}</h2>
+          <p class="muted"><span class="badge ${STATUS_BADGE[po.status]}">${STATUS_LABEL[po.status]}</span> ${po.notes ? ' · ' + escapeHtml(po.notes) : ''}</p>
+          <div id="modal-toast"></div>
+          <table>
+            <thead><tr><th>Product</th><th class="num">Ordered</th><th class="num">Received</th><th class="num">Unit Cost</th>${canReceive ? '<th class="num">Receive Now</th>' : ''}</tr></thead>
+            <tbody>
+              ${po.items.map((i) => `
+                <tr>
+                  <td>${escapeHtml(i.product_name)}</td>
+                  <td class="num">${i.quantity_ordered}</td>
+                  <td class="num">${i.quantity_received}</td>
+                  <td class="num">${money(i.unit_cost)}</td>
+                  ${canReceive ? `<td class="num"><input class="recv-qty" data-product="${i.product_id}" type="number" min="0" max="${i.quantity_ordered - i.quantity_received}" value="0" style="width:90px;"></td>` : ''}
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+          <div class="modal-actions">
+            ${canMarkOrdered ? '<button class="secondary" id="mark-ordered">Mark as Ordered</button>' : ''}
+            ${po.status === 'draft' || po.status === 'ordered' ? '<button class="danger" id="cancel-po">Cancel Order</button>' : ''}
+            ${canReceive ? '<button id="receive-btn">Record Receipt</button>' : ''}
+            <button class="secondary" id="close-view">Close</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(backdrop);
+      backdrop.querySelector("#close-view").addEventListener("click", () => backdrop.remove());
+      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
+
+      const markOrderedBtn = backdrop.querySelector("#mark-ordered");
+      if (markOrderedBtn) markOrderedBtn.addEventListener("click", async () => {
+        try {
+          await api(`/purchase-orders/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: "ordered" }) });
+          backdrop.remove();
+          toast("Marked as ordered.", "success");
+          loadPOs();
+        } catch (err) { backdrop.querySelector("#modal-toast").innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`; }
+      });
+
+      const cancelBtn = backdrop.querySelector("#cancel-po");
+      if (cancelBtn) cancelBtn.addEventListener("click", async () => {
+        try {
+          await api(`/purchase-orders/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) });
+          backdrop.remove();
+          toast("Purchase order cancelled.", "success");
+          loadPOs();
+        } catch (err) { backdrop.querySelector("#modal-toast").innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`; }
+      });
+
+      const receiveBtn = backdrop.querySelector("#receive-btn");
+      if (receiveBtn) receiveBtn.addEventListener("click", async () => {
+        const items = [...backdrop.querySelectorAll(".recv-qty")].map((inp) => ({
+          product_id: parseInt(inp.dataset.product, 10),
+          quantity_received: parseInt(inp.value || "0", 10),
+        })).filter((i) => i.quantity_received > 0);
+        if (!items.length) { backdrop.querySelector("#modal-toast").innerHTML = `<div class="alert error">Enter at least one received quantity.</div>`; return; }
+        try {
+          await api(`/purchase-orders/${id}/receive`, { method: "POST", body: JSON.stringify({ items }) });
+          backdrop.remove();
+          toast("Receipt recorded and stock updated.", "success");
+          loadPOs();
+          init();
+        } catch (err) { backdrop.querySelector("#modal-toast").innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`; }
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Filling Captains — Vendit Inventory</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+  <script src="/static/js/app.js"></script>
+  <script>
+    if (requireAuth()) {
+      renderShell("/captains.html");
+      const main = document.getElementById("main-content");
+      main.innerHTML = `
+        <div class="page-header">
+          <div><h1>Filling Captains</h1><p class="page-sub">Field staff who take stock out to fill machines and bring back leftovers</p></div>
+          ${isAdmin() ? '<button id="add-btn">+ Add Captain</button>' : ''}
+        </div>
+        <div id="toast-area"></div>
+        <div class="card" style="padding:0;">
+          <table id="table">
+            <thead><tr><th>Name</th><th>Phone</th><th>Notes</th><th>Status</th><th></th></tr></thead>
+            <tbody><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      `;
+      if (isAdmin()) document.getElementById("add-btn").addEventListener("click", () => openModal());
+      load();
+    }
+
+    let items = [];
+    async function load() {
+      try {
+        items = await api("/captains?include_inactive=1");
+        document.getElementById("table").querySelector("tbody").innerHTML = items.map((c) => `
+          <tr>
+            <td>${escapeHtml(c.name)}</td>
+            <td>${escapeHtml(c.phone || '')}</td>
+            <td>${escapeHtml(c.notes || '')}</td>
+            <td>${c.active ? '<span class="badge teal">Active</span>' : '<span class="badge gray">Inactive</span>'}</td>
+            <td>${isAdmin() ? `<button class="secondary small" onclick="openModal(${c.id})">Edit</button>` : ''}</td>
+          </tr>
+        `).join("") || '<tr><td colspan="5" class="empty-state">No filling captains yet.</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+
+    function openModal(id) {
+      const c = id ? items.find((x) => x.id === id) : null;
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.innerHTML = `
+        <div class="modal">
+          <h2>${c ? "Edit Captain" : "Add Filling Captain"}</h2>
+          <div id="modal-toast"></div>
+          <form id="form">
+            <div class="field"><label>Name</label><input name="name" value="${escapeHtml(c ? c.name : '')}" required></div>
+            <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(c && c.phone ? c.phone : '')}"></div>
+            <div class="field"><label>Notes</label><input name="notes" value="${escapeHtml(c && c.notes ? c.notes : '')}"></div>
+            ${c ? `<div class="field"><label>Status</label><select name="active"><option value="1" ${c.active ? 'selected' : ''}>Active</option><option value="0" ${!c.active ? 'selected' : ''}>Inactive</option></select></div>` : ''}
+            <div class="modal-actions">
+              <button type="button" class="secondary" id="cancel-btn">Cancel</button>
+              <button type="submit">${c ? "Save Changes" : "Add Captain"}</button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(backdrop);
+      backdrop.querySelector("#cancel-btn").addEventListener("click", () => backdrop.remove());
+      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
+      backdrop.querySelector("#form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = Object.fromEntries(new FormData(e.target).entries());
+        if ("active" in payload) payload.active = payload.active === "1";
+        try {
+          if (c) await api(`/captains/${c.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+          else await api("/captains", { method: "POST", body: JSON.stringify(payload) });
+          backdrop.remove();
+          toast(c ? "Captain updated." : "Captain added.", "success");
+          load();
+        } catch (err) {
+          backdrop.querySelector("#modal-toast").innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`;
+        }
+      });
+    }
+  </script>
+</body>
+</html>

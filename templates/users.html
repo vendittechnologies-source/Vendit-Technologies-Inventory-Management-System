@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Users — Vendit Inventory</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+  <script src="/static/js/app.js"></script>
+  <script>
+    if (requireAdmin()) {
+      renderShell("/users.html");
+      const main = document.getElementById("main-content");
+      main.innerHTML = `
+        <div class="page-header">
+          <div><h1>Users</h1><p class="page-sub">Accounts that can sign in to this system</p></div>
+          <button id="add-btn">+ Add User</button>
+        </div>
+        <div id="toast-area"></div>
+        <div class="card" style="padding:0;">
+          <table id="table">
+            <thead><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
+            <tbody><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById("add-btn").addEventListener("click", () => openModal());
+      load();
+    }
+
+    let items = [];
+    async function load() {
+      try {
+        items = await api("/users");
+        document.getElementById("table").querySelector("tbody").innerHTML = items.map((u) => `
+          <tr>
+            <td>${escapeHtml(u.username)}</td>
+            <td>${escapeHtml(u.full_name)}</td>
+            <td><span class="badge ${u.role === 'admin' ? 'teal' : 'gray'}">${u.role}</span></td>
+            <td>${u.active ? '<span class="badge teal">Active</span>' : '<span class="badge gray">Inactive</span>'}</td>
+            <td><button class="secondary small" onclick="openModal(${u.id})">Edit</button></td>
+          </tr>
+        `).join("") || '<tr><td colspan="5" class="empty-state">No users yet.</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+
+    function openModal(id) {
+      const u = id ? items.find((x) => x.id === id) : null;
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.innerHTML = `
+        <div class="modal">
+          <h2>${u ? "Edit User" : "Add User"}</h2>
+          <div id="modal-toast"></div>
+          <form id="form">
+            ${!u ? `<div class="field"><label>Username</label><input name="username" required></div>` : ''}
+            <div class="field"><label>Full Name</label><input name="full_name" value="${escapeHtml(u ? u.full_name : '')}" required></div>
+            <div class="field"><label>Role</label><select name="role"><option value="staff" ${u && u.role === 'staff' ? 'selected' : ''}>Staff</option><option value="admin" ${u && u.role === 'admin' ? 'selected' : ''}>Admin</option></select></div>
+            <div class="field"><label>${u ? "New Password (leave blank to keep current)" : "Password"}</label><input name="password" type="password" ${u ? '' : 'required'} minlength="8"></div>
+            ${u ? `<div class="field"><label>Status</label><select name="active"><option value="1" ${u.active ? 'selected' : ''}>Active</option><option value="0" ${!u.active ? 'selected' : ''}>Inactive</option></select></div>` : ''}
+            <div class="modal-actions">
+              <button type="button" class="secondary" id="cancel-btn">Cancel</button>
+              <button type="submit">${u ? "Save Changes" : "Create User"}</button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(backdrop);
+      backdrop.querySelector("#cancel-btn").addEventListener("click", () => backdrop.remove());
+      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
+      backdrop.querySelector("#form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = Object.fromEntries(new FormData(e.target).entries());
+        if (!payload.password) delete payload.password;
+        if ("active" in payload) payload.active = payload.active === "1";
+        try {
+          if (u) await api(`/users/${u.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+          else await api("/users", { method: "POST", body: JSON.stringify(payload) });
+          backdrop.remove();
+          toast(u ? "User updated." : "User created.", "success");
+          load();
+        } catch (err) {
+          backdrop.querySelector("#modal-toast").innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`;
+        }
+      });
+    }
+  </script>
+</body>
+</html>

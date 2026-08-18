@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — Vendit Inventory</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="login-page">
+    <div class="login-card">
+      <h1>Vendit Technologies</h1>
+      <p class="page-sub">Inventory Management System</p>
+      <div id="toast-area"></div>
+      <form id="login-form">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit">Sign in</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    if (getToken()) window.location.href = "/dashboard.html";
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+      try {
+        const res = await api("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
+        setSession(res.token, res.user);
+        window.location.href = "/dashboard.html";
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  </script>
+</body>
+</html>

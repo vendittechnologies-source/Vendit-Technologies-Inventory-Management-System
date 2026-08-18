@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reports — Vendit Inventory</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+  <script src="/static/js/app.js"></script>
+  <script>
+    if (requireAuth()) {
+      renderShell("/reports.html");
+      const main = document.getElementById("main-content");
+      main.innerHTML = `
+        <div class="page-header"><div><h1>Reports</h1><p class="page-sub">Low stock, valuation, captain performance, and full movement history</p></div></div>
+        <div id="toast-area"></div>
+
+        <div class="card">
+          <h2>Low Stock (at or below reorder point)</h2>
+          <table id="low-stock-table"><thead><tr><th>SKU</th><th>Name</th><th class="num">On Hand</th><th class="num">Reorder At</th></tr></thead><tbody><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table>
+        </div>
+
+        <div class="card">
+          <h2>Inventory Valuation</h2>
+          <div id="valuation-totals" class="tiles"></div>
+          <table id="valuation-table"><thead><tr><th>SKU</th><th>Name</th><th class="num">Qty</th><th class="num">Cost Value</th><th class="num">Retail Value</th></tr></thead><tbody><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody></table>
+        </div>
+
+        <div class="card">
+          <h2>Captain Summary</h2>
+          <div class="toolbar">
+            <label style="margin:0;">From <input type="date" id="cap-from" style="width:auto;display:inline-block;"></label>
+            <label style="margin:0;">To <input type="date" id="cap-to" style="width:auto;display:inline-block;"></label>
+            <button class="secondary small" id="cap-filter-btn">Apply</button>
+          </div>
+          <table id="captain-table"><thead><tr><th>Captain</th><th class="num">Issued</th><th class="num">Returned</th><th class="num">Filled</th><th class="num">Damaged</th><th class="num">Expired</th></tr></thead><tbody><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table>
+        </div>
+
+        <div class="card">
+          <h2>Consumption by Team</h2>
+          <table id="team-table"><thead><tr><th>Team</th><th class="num">Total Consumed</th></tr></thead><tbody><tr><td colspan="2" class="empty-state">Loading…</td></tr></tbody></table>
+        </div>
+
+        <div class="card">
+          <h2>Full Movement History</h2>
+          <div class="toolbar">
+            <select id="reason-filter">
+              <option value="">All reasons</option>
+              <option value="purchase">Purchase</option>
+              <option value="return">Captain Return</option>
+              <option value="issuance">Issuance</option>
+              <option value="consumption">Consumption</option>
+              <option value="damage">Damage</option>
+              <option value="expiry">Expiry</option>
+              <option value="adjustment">Adjustment</option>
+            </select>
+            <button class="secondary small" id="txn-filter-btn">Apply</button>
+          </div>
+          <table id="txn-table"><thead><tr><th>When</th><th>Product</th><th>Type</th><th class="num">Qty</th><th class="num">Resulting</th><th>Captain/Team</th><th>By</th></tr></thead><tbody><tr><td colspan="7" class="empty-state">Loading…</td></tr></tbody></table>
+        </div>
+      `;
+      document.getElementById("cap-filter-btn").addEventListener("click", loadCaptainSummary);
+      document.getElementById("txn-filter-btn").addEventListener("click", loadTransactions);
+      loadAll();
+    }
+
+    async function loadAll() {
+      loadLowStock();
+      loadValuation();
+      loadCaptainSummary();
+      loadTeamConsumption();
+      loadTransactions();
+    }
+
+    async function loadLowStock() {
+      try {
+        const rows = await api("/reports/low-stock");
+        document.getElementById("low-stock-table").querySelector("tbody").innerHTML = rows.map((p) => `
+          <tr><td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.name)}</td><td class="num"><span class="badge amber">${p.quantity_on_hand}</span></td><td class="num">${p.reorder_point}</td></tr>
+        `).join("") || '<tr><td colspan="4" class="empty-state">Nothing is low on stock. 🎉</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+
+    async function loadValuation() {
+      try {
+        const d = await api("/reports/valuation");
+        document.getElementById("valuation-totals").innerHTML = `
+          <div class="tile"><div class="label">Total Cost Value</div><div class="value">${money(d.totals.total_cost_value)}</div></div>
+          <div class="tile"><div class="label">Total Retail Value</div><div class="value">${money(d.totals.total_retail_value)}</div></div>
+        `;
+        document.getElementById("valuation-table").querySelector("tbody").innerHTML = d.products.map((p) => `
+          <tr><td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.name)}</td><td class="num">${p.quantity_on_hand}</td><td class="num">${money(p.cost_value)}</td><td class="num">${money(p.retail_value)}</td></tr>
+        `).join("") || '<tr><td colspan="5" class="empty-state">No products yet.</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+
+    async function loadCaptainSummary() {
+      const from = document.getElementById("cap-from").value;
+      const to = document.getElementById("cap-to").value;
+      const params = new URLSearchParams();
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+      try {
+        const rows = await api("/reports/captain-summary?" + params.toString());
+        document.getElementById("captain-table").querySelector("tbody").innerHTML = rows.map((r) => `
+          <tr><td>${escapeHtml(r.captain_name)}</td><td class="num">${r.total_issued}</td><td class="num">${r.total_returned}</td><td class="num"><strong>${r.total_filled}</strong></td><td class="num">${r.total_damaged}</td><td class="num">${r.total_expired}</td></tr>
+        `).join("") || '<tr><td colspan="6" class="empty-state">No filling captains yet.</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+
+    async function loadTeamConsumption() {
+      try {
+        const rows = await api("/reports/consumption-by-team");
+        document.getElementById("team-table").querySelector("tbody").innerHTML = rows.map((r) => `
+          <tr><td>${escapeHtml(r.team_name)}</td><td class="num">${r.total_consumed}</td></tr>
+        `).join("") || '<tr><td colspan="2" class="empty-state">No teams yet.</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+
+    async function loadTransactions() {
+      const reason = document.getElementById("reason-filter").value;
+      const params = new URLSearchParams();
+      if (reason) params.set("reason", reason);
+      try {
+        const rows = await api("/stock/transactions?" + params.toString());
+        document.getElementById("txn-table").querySelector("tbody").innerHTML = rows.map((t) => `
+          <tr>
+            <td>${dt(t.created_at)}</td>
+            <td>${escapeHtml(t.product_name)}</td>
+            <td>${reasonBadge(t.reason)}</td>
+            <td class="num">${t.type === 'in' ? '+' : '-'}${t.quantity}</td>
+            <td class="num">${t.resulting_quantity}</td>
+            <td>${escapeHtml(t.captain_name || t.team_name || '')}</td>
+            <td>${escapeHtml(t.created_by_name || '')}</td>
+          </tr>
+        `).join("") || '<tr><td colspan="7" class="empty-state">No movements found.</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+  </script>
+</body>
+</html>

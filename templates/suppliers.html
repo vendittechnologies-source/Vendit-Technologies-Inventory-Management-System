@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Suppliers — Vendit Inventory</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+  <script src="/static/js/app.js"></script>
+  <script>
+    if (requireAuth()) {
+      renderShell("/suppliers.html");
+      const main = document.getElementById("main-content");
+      main.innerHTML = `
+        <div class="page-header">
+          <div><h1>Suppliers</h1><p class="page-sub">Vendors you purchase stock from</p></div>
+          ${isAdmin() ? '<button id="add-btn">+ Add Supplier</button>' : ''}
+        </div>
+        <div id="toast-area"></div>
+        <div class="card" style="padding:0;">
+          <table id="table">
+            <thead><tr><th>Name</th><th>Contact</th><th>Email</th><th>Phone</th><th>Status</th><th></th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      `;
+      if (isAdmin()) document.getElementById("add-btn").addEventListener("click", () => openModal());
+      load();
+    }
+
+    let items = [];
+    async function load() {
+      try {
+        items = await api("/suppliers?include_inactive=1");
+        document.getElementById("table").querySelector("tbody").innerHTML = items.map((s) => `
+          <tr>
+            <td>${escapeHtml(s.name)}</td>
+            <td>${escapeHtml(s.contact_name || '')}</td>
+            <td>${escapeHtml(s.email || '')}</td>
+            <td>${escapeHtml(s.phone || '')}</td>
+            <td>${s.active ? '<span class="badge teal">Active</span>' : '<span class="badge gray">Inactive</span>'}</td>
+            <td>${isAdmin() ? `<button class="secondary small" onclick="openModal(${s.id})">Edit</button>` : ''}</td>
+          </tr>
+        `).join("") || '<tr><td colspan="6" class="empty-state">No suppliers yet.</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+
+    function openModal(id) {
+      const s = id ? items.find((x) => x.id === id) : null;
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.innerHTML = `
+        <div class="modal">
+          <h2>${s ? "Edit Supplier" : "Add Supplier"}</h2>
+          <div id="modal-toast"></div>
+          <form id="form">
+            <div class="field"><label>Name</label><input name="name" value="${escapeHtml(s ? s.name : '')}" required></div>
+            <div class="field-row">
+              <div class="field"><label>Contact Name</label><input name="contact_name" value="${escapeHtml(s && s.contact_name ? s.contact_name : '')}"></div>
+              <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(s && s.phone ? s.phone : '')}"></div>
+            </div>
+            <div class="field"><label>Email</label><input name="email" type="email" value="${escapeHtml(s && s.email ? s.email : '')}"></div>
+            <div class="field"><label>Address</label><input name="address" value="${escapeHtml(s && s.address ? s.address : '')}"></div>
+            <div class="field"><label>Notes</label><input name="notes" value="${escapeHtml(s && s.notes ? s.notes : '')}"></div>
+            ${s ? `<div class="field"><label>Status</label><select name="active"><option value="1" ${s.active ? 'selected' : ''}>Active</option><option value="0" ${!s.active ? 'selected' : ''}>Inactive</option></select></div>` : ''}
+            <div class="modal-actions">
+              <button type="button" class="secondary" id="cancel-btn">Cancel</button>
+              <button type="submit">${s ? "Save Changes" : "Add Supplier"}</button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(backdrop);
+      backdrop.querySelector("#cancel-btn").addEventListener("click", () => backdrop.remove());
+      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
+      backdrop.querySelector("#form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = Object.fromEntries(new FormData(e.target).entries());
+        if ("active" in payload) payload.active = payload.active === "1";
+        try {
+          if (s) await api(`/suppliers/${s.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+          else await api("/suppliers", { method: "POST", body: JSON.stringify(payload) });
+          backdrop.remove();
+          toast(s ? "Supplier updated." : "Supplier added.", "success");
+          load();
+        } catch (err) {
+          backdrop.querySelector("#modal-toast").innerHTML = `<div class="alert error">${escapeHtml(err.message)}</div>`;
+        }
+      });
+    }
+  </script>
+</body>
+</html>
