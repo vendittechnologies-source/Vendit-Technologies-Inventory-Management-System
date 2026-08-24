@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard — Vendit Inventory</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+  <script src="/static/js/app.js"></script>
+  <script>
+    if (requireAuth()) {
+      renderShell("/dashboard.html");
+      const main = document.getElementById("main-content");
+      main.innerHTML = `
+        <div class="page-header"><div><h1>Dashboard</h1><p class="page-sub">Live snapshot of stock across Vendit Technologies</p></div></div>
+        <div id="toast-area"></div>
+        <div class="tiles" id="tiles"></div>
+        <div class="card">
+          <h2>Recent activity</h2>
+          <table id="activity-table">
+            <thead><tr><th>When</th><th>Product</th><th>Type</th><th class="num">Qty</th><th>Who / For</th><th>By</th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      `;
+      load();
+    }
+
+    async function load() {
+      try {
+        const d = await api("/reports/dashboard");
+        document.getElementById("tiles").innerHTML = `
+          <div class="tile"><div class="label">Active Products</div><div class="value">${d.product_count}</div></div>
+          <div class="tile ${d.low_stock_count > 0 ? 'warn' : ''}"><div class="label">Low Stock Alerts</div><div class="value">${d.low_stock_count}</div></div>
+          <div class="tile"><div class="label">Inventory Value (cost)</div><div class="value">${money(d.inventory_value)}</div></div>
+          <div class="tile"><div class="label">Open Captain Runs</div><div class="value">${d.open_runs}</div></div>
+          <div class="tile"><div class="label">Open Purchase Orders</div><div class="value">${d.open_purchase_orders}</div></div>
+          <div class="tile ${d.today_writeoffs > 0 ? 'danger' : ''}"><div class="label">Written Off Today</div><div class="value">${d.today_writeoffs}</div></div>
+        `;
+        const rows = d.recent_activity.map((t) => `
+          <tr>
+            <td>${dt(t.created_at)}</td>
+            <td>${escapeHtml(t.product_name)}</td>
+            <td>${reasonBadge(t.reason)}</td>
+            <td class="num">${t.type === 'in' ? '+' : '-'}${t.quantity}</td>
+            <td>${escapeHtml(t.captain_name || t.team_name || '')}</td>
+            <td>${escapeHtml(t.created_by_name || '')}</td>
+          </tr>
+        `).join("") || '<tr><td colspan="6" class="empty-state">No activity yet.</td></tr>';
+        document.getElementById("activity-table").querySelector("tbody").innerHTML = rows;
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+  </script>
+</body>
+</html>

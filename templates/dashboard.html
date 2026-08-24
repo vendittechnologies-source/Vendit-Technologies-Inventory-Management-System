@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dashboard — Vendit Inventory</title>
+  <link rel="icon" href="/static/img/favicon.ico">
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -16,28 +17,80 @@
       main.innerHTML = `
         <div class="page-header"><div><h1>Dashboard</h1><p class="page-sub">Live snapshot of stock across Vendit Technologies</p></div></div>
         <div id="toast-area"></div>
+        <div class="toolbar">
+          <select id="range-preset">
+            <option value="today">Today</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="custom">Custom range…</option>
+          </select>
+          <div class="field" style="margin:0;"><label>From</label><input type="date" id="date-from" disabled></div>
+          <div class="field" style="margin:0;"><label>To</label><input type="date" id="date-to" disabled></div>
+        </div>
         <div class="tiles" id="tiles"></div>
         <div class="card">
-          <h2>Recent activity</h2>
+          <h2 id="activity-title">Recent activity</h2>
           <table id="activity-table">
             <thead><tr><th>When</th><th>Product</th><th>Type</th><th class="num">Qty</th><th>Who / For</th><th>By</th></tr></thead>
             <tbody><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody>
           </table>
         </div>
       `;
+      document.getElementById("range-preset").addEventListener("change", onPresetChange);
+      document.getElementById("date-from").addEventListener("change", load);
+      document.getElementById("date-to").addEventListener("change", load);
       load();
+    }
+
+    function onPresetChange() {
+      const preset = document.getElementById("range-preset").value;
+      const fromInput = document.getElementById("date-from");
+      const toInput = document.getElementById("date-to");
+      if (preset === "custom") {
+        fromInput.disabled = false;
+        toInput.disabled = false;
+        return;
+      }
+      fromInput.disabled = true;
+      toInput.disabled = true;
+      fromInput.value = "";
+      toInput.value = "";
+      if (preset !== "today") {
+        const days = parseInt(preset, 10);
+        const from = new Date();
+        from.setDate(from.getDate() - (days - 1));
+        fromInput.value = from.toISOString().slice(0, 10);
+        toInput.value = new Date().toISOString().slice(0, 10);
+      }
+      load();
+    }
+
+    function currentRange() {
+      const preset = document.getElementById("range-preset").value;
+      if (preset === "today") return {};
+      return {
+        from: document.getElementById("date-from").value,
+        to: document.getElementById("date-to").value,
+      };
     }
 
     async function load() {
       try {
-        const d = await api("/reports/dashboard");
+        const range = currentRange();
+        const params = new URLSearchParams();
+        if (range.from) params.set("from", range.from);
+        if (range.to) params.set("to", range.to);
+        const d = await api("/reports/dashboard?" + params.toString());
+        const rangeLabel = d.range_active ? "in range" : "today";
+        document.getElementById("activity-title").textContent = d.range_active ? "Activity in range" : "Recent activity";
         document.getElementById("tiles").innerHTML = `
           <div class="tile"><div class="label">Active Products</div><div class="value">${d.product_count}</div></div>
           <div class="tile ${d.low_stock_count > 0 ? 'warn' : ''}"><div class="label">Low Stock Alerts</div><div class="value">${d.low_stock_count}</div></div>
           <div class="tile"><div class="label">Inventory Value (cost)</div><div class="value">${money(d.inventory_value)}</div></div>
           <div class="tile"><div class="label">Open Captain Runs</div><div class="value">${d.open_runs}</div></div>
           <div class="tile"><div class="label">Open Purchase Orders</div><div class="value">${d.open_purchase_orders}</div></div>
-          <div class="tile ${d.today_writeoffs > 0 ? 'danger' : ''}"><div class="label">Written Off Today</div><div class="value">${d.today_writeoffs}</div></div>
+          <div class="tile"><div class="label">Stock Filled (${rangeLabel})</div><div class="value">${d.stock_filled}</div></div>
+          <div class="tile ${d.today_writeoffs > 0 ? 'danger' : ''}"><div class="label">Written Off (${rangeLabel})</div><div class="value">${d.today_writeoffs}</div></div>
         `;
         const rows = d.recent_activity.map((t) => `
           <tr>

@@ -48,7 +48,7 @@ def health():
 
 @app.route("/favicon.ico")
 def favicon():
-    return send_from_directory(os.path.join(BASE_DIR, "static", "img"), "favicon.ico")
+    return "", 204
 
 
 # ---- Serve the frontend (single-page-ish app with plain HTML pages) ----
@@ -64,8 +64,8 @@ def index():
 @app.route("/<page>.html")
 def page(page):
     safe_pages = {
-        "login", "dashboard", "inventory", "captains", "teams", "suppliers",
-        "purchase_orders", "issuance", "returns", "reports", "users",
+        "login", "dashboard", "products", "captains", "teams", "suppliers",
+        "purchase_orders", "captain_runs", "reports", "users",
     }
     if page not in safe_pages:
         return jsonify({"error": "Not found."}), 404

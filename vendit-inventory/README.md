@@ -7,28 +7,19 @@ write-offs — all logged against a single source of truth for stock on hand.
 
 ## What it tracks
 
-- **Inventory** — SKUs, barcodes, categories, cost/sell price, reorder points.
-  Has a barcode scan box built in: point a USB/Bluetooth scanner at it and it
-  finds the matching product instantly.
+- **Products** — SKUs, barcodes, categories, cost/sell price, reorder points.
 - **Filling Captains** — the field staff (also called "riders") who take stock
   out in the morning to fill machines and return unsold stock in the evening.
-- **Issuance & Returns** — two views onto the same daily captain-run cycle:
-  Issuance is the morning stock-out to a captain (also has a barcode scan box
-  to add products fast), Returns is the evening stock-in and closing the run.
-  "Stock filled" is calculated automatically as issued minus returned.
+- **Captain Runs** — one issuance + return cycle per captain per day. "Stock
+  filled" is calculated automatically as issued minus returned.
 - **Teams** — internal teams that consume stock directly (not via machines).
-  Optional on each consumption log, reachable via "Manage teams" from the
-  consumption form rather than the main nav, since most days you won't need it.
 - **Suppliers & Purchase Orders** — place orders, receive stock against them
   (partial receiving supported), and stock is added automatically on receipt.
 - **Damage / Expiry write-offs** — logged against a product and, optionally,
   a specific filling captain for accountability.
-- **Dashboard** — live tiles (stock filled, write-offs, low stock, open runs/
-  POs, inventory value) with a date-range filter (today / 7 days / 30 days /
-  custom) so you can see today's snapshot or look back over any period.
 - **Reports** — low-stock alerts, inventory valuation, per-captain summary
   (issued/returned/filled/damaged/expired), consumption by team, and a full
-  searchable movement history — each one downloadable as a PDF.
+  searchable movement history.
 - **Users & roles** — every action is tied to a logged-in user. Admins can
   manage products, suppliers, prices, users, and manual stock corrections;
   staff can run the day-to-day flows (runs, consumption, write-offs, POs).
@@ -132,16 +123,14 @@ The name "Vendit Technologies" appears in `static/js/app.js` (`renderShell`)
 and in `templates/login.html`. Update those two spots if this ever needs to
 be white-labelled.
 
-## Barcode scanning
+## Future: barcode scanning
 
-Wired in and ready to use — no setup beyond plugging in a scanner. A USB or
-Bluetooth barcode scanner acts as a keyboard (it types the barcode then
-Enter), so it works with any standard scanner, no drivers or pairing code
-needed on this end. Two spots use it: the barcode box on the Inventory page
-jumps straight to a product's row, and the barcode box inside "New Issuance"
-on the Issuance page adds/selects the scanned product in the line-item list
-automatically. Both call the same lookup endpoint, `GET
-/api/products/barcode/<code>`.
+Every product has a `barcode` field, and there's already an API endpoint
+(`GET /api/products/barcode/<code>`) that looks a product up by barcode. A
+USB or Bluetooth barcode scanner acts as a keyboard, so the fastest way to
+add scanning later is to add a barcode input box to the relevant forms
+(e.g. the "add product to run" row) that calls this endpoint on each scan
+and auto-fills the product — no hardware integration code needed beyond that.
 
 ## Project structure
 

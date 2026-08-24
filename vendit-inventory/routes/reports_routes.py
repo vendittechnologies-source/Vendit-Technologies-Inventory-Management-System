@@ -3,7 +3,6 @@ from flask import Blueprint, request, jsonify
 from db.connection import get_connection
 from auth import require_auth
 from utils import rows_to_list, today_str
-from pdf_utils import build_pdf_response
 
 bp = Blueprint("reports_routes", __name__, url_prefix="/api/reports")
 
@@ -11,27 +10,6 @@ bp = Blueprint("reports_routes", __name__, url_prefix="/api/reports")
 @bp.route("/dashboard", methods=["GET"])
 @require_auth
 def dashboard():
-    """Point-in-time tiles (active products, inventory value, open runs/POs)
-    are never date-filtered -- they describe right now. The activity-based
-    tiles (write-offs, stock filled) and the recent activity feed respect an
-    optional ?from=&to= date range, defaulting to just today when neither is
-    given, same as before this filter existed."""
-    date_from = request.args.get("from")
-    date_to = request.args.get("to")
-    range_active = bool(date_from or date_to)
-
-    date_clause = ""
-    range_params = []
-    if date_from:
-        date_clause += " AND substr(created_at, 1, 10) >= ?"
-        range_params.append(date_from)
-    if date_to:
-        date_clause += " AND substr(created_at, 1, 10) <= ?"
-        range_params.append(date_to)
-    if not range_active:
-        date_clause = " AND substr(created_at, 1, 10) = ?"
-        range_params = [today_str()]
-
     conn = get_connection()
     try:
         product_count = conn.execute(
@@ -49,40 +27,21 @@ def dashboard():
         open_pos = conn.execute(
             "SELECT COUNT(*) AS n FROM purchase_orders WHERE status IN ('draft', 'ordered', 'partially_received')"
         ).fetchone()["n"]
-        range_writeoffs = conn.execute(
-            f"SELECT COALESCE(SUM(quantity), 0) AS n FROM stock_transactions "
-            f"WHERE reason IN ('damage','expiry') {date_clause}",
-            range_params,
+        today_writeoffs = conn.execute(
+            "SELECT COALESCE(SUM(quantity), 0) AS n FROM stock_transactions "
+            "WHERE reason IN ('damage','expiry') AND substr(created_at, 1, 10) = ?",
+            (today_str(),),
         ).fetchone()["n"]
-        range_filled = conn.execute(
-            f"""SELECT
-                    COALESCE(SUM(CASE WHEN reason = 'issuance' THEN quantity ELSE 0 END), 0) AS issued,
-                    COALESCE(SUM(CASE WHEN reason = 'return' THEN quantity ELSE 0 END), 0) AS returned
-                FROM stock_transactions WHERE 1=1 {date_clause}""",
-            range_params,
-        ).fetchone()
-        stock_filled = range_filled["issued"] - range_filled["returned"]
-
-        activity_clause = ""
-        activity_params = []
-        if date_from:
-            activity_clause += " AND substr(t.created_at, 1, 10) >= ?"
-            activity_params.append(date_from)
-        if date_to:
-            activity_clause += " AND substr(t.created_at, 1, 10) <= ?"
-            activity_params.append(date_to)
 
         recent = conn.execute(
-            f"""SELECT t.*, p.name AS product_name, u.full_name AS created_by_name,
+            """SELECT t.*, p.name AS product_name, u.full_name AS created_by_name,
                       c.name AS captain_name, tm.name AS team_name
                FROM stock_transactions t
                JOIN products p ON p.id = t.product_id
                LEFT JOIN users u ON u.id = t.created_by
                LEFT JOIN captains c ON c.id = t.captain_id
                LEFT JOIN teams tm ON tm.id = t.team_id
-               WHERE 1=1 {activity_clause}
-               ORDER BY t.created_at DESC, t.id DESC LIMIT {50 if range_active else 15}""",
-            activity_params,
+               ORDER BY t.created_at DESC, t.id DESC LIMIT 15"""
         ).fetchall()
 
         return jsonify(
@@ -92,9 +51,7 @@ def dashboard():
                 "inventory_value": inventory_value,
                 "open_runs": open_runs,
                 "open_purchase_orders": open_pos,
-                "today_writeoffs": range_writeoffs,
-                "stock_filled": stock_filled,
-                "range_active": range_active,
+                "today_writeoffs": today_writeoffs,
                 "recent_activity": rows_to_list(recent),
             }
         )
@@ -112,15 +69,7 @@ def low_stock():
                WHERE active = 1 AND quantity_on_hand <= reorder_point
                ORDER BY (quantity_on_hand - reorder_point) ASC"""
         ).fetchall()
-        data = rows_to_list(rows)
-        if request.args.get("format") == "pdf":
-            return build_pdf_response(
-                "low-stock-report.pdf", "Low Stock Report",
-                [("SKU", "sku", "LEFT"), ("Name", "name", "LEFT"), ("Category", "category", "LEFT"),
-                 ("On Hand", "quantity_on_hand", "RIGHT"), ("Reorder At", "reorder_point", "RIGHT")],
-                data,
-            )
-        return jsonify(data)
+        return jsonify(rows_to_list(rows))
     finally:
         conn.close()
 
@@ -141,20 +90,7 @@ def valuation():
                       COALESCE(SUM(quantity_on_hand * sell_price), 0) AS total_retail_value
                FROM products WHERE active = 1"""
         ).fetchone()
-        products = rows_to_list(rows)
-        if request.args.get("format") == "pdf":
-            totals_d = dict(totals)
-            subtitle = (
-                f"Total cost value: {totals_d['total_cost_value']:,.2f} · "
-                f"Total retail value: {totals_d['total_retail_value']:,.2f}"
-            )
-            return build_pdf_response(
-                "valuation-report.pdf", "Inventory Valuation", columns=[
-                    ("SKU", "sku", "LEFT"), ("Name", "name", "LEFT"), ("Qty", "quantity_on_hand", "RIGHT"),
-                    ("Cost Value", "cost_value", "RIGHT"), ("Retail Value", "retail_value", "RIGHT"),
-                ], rows=products, subtitle=subtitle,
-            )
-        return jsonify({"products": products, "totals": dict(totals)})
+        return jsonify({"products": rows_to_list(rows), "totals": dict(totals)})
     finally:
         conn.close()
 
@@ -195,17 +131,6 @@ def captain_summary():
             d = dict(r)
             d["total_filled"] = d["total_issued"] - d["total_returned"]
             result.append(d)
-        if request.args.get("format") == "pdf":
-            subtitle = None
-            if date_from or date_to:
-                subtitle = f"Range: {date_from or 'earliest'} to {date_to or 'latest'}"
-            return build_pdf_response(
-                "captain-summary-report.pdf", "Captain Summary", columns=[
-                    ("Captain", "captain_name", "LEFT"), ("Issued", "total_issued", "RIGHT"),
-                    ("Returned", "total_returned", "RIGHT"), ("Filled", "total_filled", "RIGHT"),
-                    ("Damaged", "total_damaged", "RIGHT"), ("Expired", "total_expired", "RIGHT"),
-                ], rows=result, subtitle=subtitle,
-            )
         return jsonify(result)
     finally:
         conn.close()
@@ -237,16 +162,6 @@ def consumption_by_team():
                 ORDER BY tm.name""",
             params,
         ).fetchall()
-        data = rows_to_list(rows)
-        if request.args.get("format") == "pdf":
-            subtitle = None
-            if date_from or date_to:
-                subtitle = f"Range: {date_from or 'earliest'} to {date_to or 'latest'}"
-            return build_pdf_response(
-                "consumption-by-team-report.pdf", "Consumption by Team", columns=[
-                    ("Team", "team_name", "LEFT"), ("Total Consumed", "total_consumed", "RIGHT"),
-                ], rows=data, subtitle=subtitle,
-            )
-        return jsonify(data)
+        return jsonify(rows_to_list(rows))
     finally:
         conn.close()

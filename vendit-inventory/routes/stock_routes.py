@@ -6,7 +6,6 @@ from db.connection import get_connection
 from auth import require_auth, require_role
 from utils import ApiError, rows_to_list
 from stock_ops import apply_stock_change
-from pdf_utils import build_pdf_response
 
 bp = Blueprint("stock_routes", __name__, url_prefix="/api/stock")
 
@@ -16,19 +15,18 @@ bp = Blueprint("stock_routes", __name__, url_prefix="/api/stock")
 def log_consumption():
     data = request.get_json(silent=True) or {}
     product_id = data.get("product_id")
-    team_id = data.get("team_id") or None
+    team_id = data.get("team_id")
     quantity = data.get("quantity")
     notes = data.get("notes")
 
-    if not product_id or not quantity:
-        return jsonify({"error": "Product and quantity are required."}), 400
+    if not product_id or not team_id or not quantity:
+        return jsonify({"error": "Product, team, and quantity are required."}), 400
 
     conn = get_connection()
     try:
-        if team_id:
-            team = conn.execute("SELECT id FROM teams WHERE id = ?", (team_id,)).fetchone()
-            if not team:
-                return jsonify({"error": "Team not found."}), 404
+        team = conn.execute("SELECT id FROM teams WHERE id = ?", (team_id,)).fetchone()
+        if not team:
+            return jsonify({"error": "Team not found."}), 404
 
         apply_stock_change(
             conn, product_id, "out", quantity, "consumption", g.user["id"],
@@ -151,24 +149,6 @@ def list_transactions():
     conn = get_connection()
     try:
         rows = conn.execute(sql, params).fetchall()
-        data = rows_to_list(rows)
-        if request.args.get("format") == "pdf":
-            for row in data:
-                row["captain_or_team"] = row.get("captain_name") or row.get("team_name")
-                row["signed_qty"] = f"+{row['quantity']}" if row["type"] == "in" else f"-{row['quantity']}"
-            subtitle_bits = []
-            if reason:
-                subtitle_bits.append(f"Reason: {reason}")
-            if date_from or date_to:
-                subtitle_bits.append(f"Range: {date_from or 'earliest'} to {date_to or 'latest'}")
-            return build_pdf_response(
-                "transaction-history.pdf", "Full Movement History", columns=[
-                    ("When", "created_at", "LEFT"), ("Product", "product_name", "LEFT"),
-                    ("Reason", "reason", "LEFT"), ("Qty", "signed_qty", "RIGHT"),
-                    ("Resulting", "resulting_quantity", "RIGHT"), ("Captain/Team", "captain_or_team", "LEFT"),
-                    ("By", "created_by_name", "LEFT"),
-                ], rows=data, subtitle=" · ".join(subtitle_bits) or None,
-            )
-        return jsonify(data)
+        return jsonify(rows_to_list(rows))
     finally:
         conn.close()

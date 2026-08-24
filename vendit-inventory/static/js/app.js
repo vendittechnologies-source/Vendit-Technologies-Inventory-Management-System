@@ -114,12 +114,12 @@ function reasonBadge(reason) {
 
 const NAV_ITEMS = [
   { href: "/dashboard.html", label: "Dashboard" },
-  { href: "/inventory.html", label: "Inventory" },
-  { href: "/issuance.html", label: "Issuance" },
-  { href: "/returns.html", label: "Returns" },
+  { href: "/products.html", label: "Products" },
+  { href: "/captain_runs.html", label: "Captain Runs" },
   { href: "/purchase_orders.html", label: "Purchase Orders" },
   { href: "/suppliers.html", label: "Suppliers" },
   { href: "/captains.html", label: "Filling Captains" },
+  { href: "/teams.html", label: "Teams" },
   { href: "/reports.html", label: "Reports" },
   { href: "/users.html", label: "Users", adminOnly: true },
 ];
@@ -138,7 +138,7 @@ function renderShell(activeHref) {
 
   shell.innerHTML = `
     <div class="sidebar">
-      <div class="brand"><img src="/static/img/vendit-icon.png" alt=""><div>Vendit Technologies<span>Inventory Management</span></div></div>
+      <div class="brand">Vendit Technologies<span>Inventory Management</span></div>
       <nav>${navHtml}</nav>
       <div class="user-box">
         Signed in as<br><strong>${escapeHtml(user ? user.full_name : "")}</strong> (${escapeHtml(user ? user.role : "")})
@@ -148,25 +148,6 @@ function renderShell(activeHref) {
     <div class="main" id="main-content"></div>
   `;
   document.getElementById("logout-btn").addEventListener("click", logout);
-}
-
-async function downloadPdf(path, filename) {
-  try {
-    const token = getToken();
-    const res = await fetch("/api" + path, { headers: token ? { Authorization: "Bearer " + token } : {} });
-    if (!res.ok) throw new Error(`Couldn't generate the PDF (${res.status}).`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch (err) {
-    toast(err.message);
-  }
 }
 
 function toast(msg, type = "error") {

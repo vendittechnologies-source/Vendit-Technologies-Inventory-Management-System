@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Issuance — Vendit Inventory</title>
+  <link rel="icon" href="/static/img/favicon.ico">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/runs-common.js"></script>
+  <script>
+    if (requireAuth()) {
+      renderShell("/issuance.html");
+      const main = document.getElementById("main-content");
+      main.innerHTML = `
+        <div class="page-header">
+          <div><h1>Issuance</h1><p class="page-sub">Morning stock handed out to filling captains to fill vending machines.</p></div>
+          <div class="toolbar" style="margin:0;">
+            <button class="secondary" id="consumption-btn">Log Consumption</button>
+            <button class="secondary" id="writeoff-btn">Log Damage / Expiry</button>
+            <button id="new-run-btn">+ New Issuance</button>
+          </div>
+        </div>
+        <div id="toast-area"></div>
+        <div class="toolbar">
+          <select id="status-filter">
+            <option value="">All issuances</option>
+            <option value="open">Awaiting return</option>
+            <option value="closed">Returned/closed</option>
+          </select>
+        </div>
+        <div class="card" style="padding:0;">
+          <table id="table">
+            <thead><tr><th>Date</th><th>Captain</th><th>Status</th><th class="num">Items</th><th>Issued At</th><th></th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById("status-filter").addEventListener("change", loadIssuance);
+      document.getElementById("new-run-btn").addEventListener("click", () => openNewRunModal(loadIssuance));
+      document.getElementById("consumption-btn").addEventListener("click", () => openConsumptionModal());
+      document.getElementById("writeoff-btn").addEventListener("click", () => openWriteoffModal());
+      init();
+    }
+
+    async function init() {
+      await initRunsData();
+      loadIssuance();
+    }
+
+    async function loadIssuance() {
+      const status = document.getElementById("status-filter").value;
+      const params = new URLSearchParams();
+      if (status) params.set("status", status);
+      try {
+        const runs = await api("/captain-runs?" + params.toString());
+        document.getElementById("table").querySelector("tbody").innerHTML = runs.map((r) => `
+          <tr>
+            <td>${r.run_date}</td>
+            <td>${escapeHtml(r.captain_name)}</td>
+            <td>${r.status === 'open' ? '<span class="badge amber">Awaiting return</span>' : '<span class="badge teal">Closed</span>'}</td>
+            <td class="num">${r.item_count}</td>
+            <td>${dt(r.issued_at)}</td>
+            <td><button class="secondary small" onclick="viewRun(${r.id})">View</button></td>
+          </tr>
+        `).join("") || '<tr><td colspan="6" class="empty-state">No issuances found.</td></tr>';
+      } catch (err) { toast(err.message); }
+    }
+  </script>
+</body>
+</html>
