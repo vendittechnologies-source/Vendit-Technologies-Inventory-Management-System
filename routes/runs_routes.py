@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify, g
 
 from db.connection import get_connection
 from auth import require_auth
-from utils import ApiError, rows_to_list
+from utils import ApiError, rows_to_list, now_str, today_str
 from stock_ops import apply_stock_change
 
 bp = Blueprint("runs_routes", __name__, url_prefix="/api/captain-runs")
@@ -104,9 +104,9 @@ def create_run():
             return jsonify({"error": "Filling captain not found or inactive."}), 404
 
         cur = conn.execute(
-            """INSERT INTO captain_runs (captain_id, run_date, status, notes, created_by)
-               VALUES (?, COALESCE(?, date('now')), 'open', ?, ?)""",
-            (captain_id, run_date, notes, g.user["id"]),
+            """INSERT INTO captain_runs (captain_id, run_date, status, notes, created_by, issued_at)
+               VALUES (?, ?, 'open', ?, ?, ?)""",
+            (captain_id, run_date or today_str(), notes, g.user["id"], now_str()),
         )
         run_id = cur.lastrowid
 
@@ -176,9 +176,9 @@ def close_run(run_id):
             )
 
         conn.execute(
-            "UPDATE captain_runs SET status = 'closed', closed_at = datetime('now'), "
+            "UPDATE captain_runs SET status = 'closed', closed_at = ?, "
             "notes = COALESCE(?, notes) WHERE id = ?",
-            (notes, run_id),
+            (now_str(), notes, run_id),
         )
         conn.commit()
         return jsonify(_run_with_items(conn, run_id))

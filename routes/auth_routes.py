@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from db.connection import get_connection
 from auth import generate_token, require_auth, require_role
-from utils import row_to_dict, rows_to_list
+from utils import row_to_dict, rows_to_list, now_str
 
 bp = Blueprint("auth_routes", __name__, url_prefix="/api/auth")
 users_bp = Blueprint("users_routes", __name__, url_prefix="/api/users")
@@ -117,9 +117,9 @@ def create_user():
             return jsonify({"error": "That username is already taken."}), 409
 
         cur = conn.execute(
-            "INSERT INTO users (username, password_hash, full_name, role, active) "
-            "VALUES (?, ?, ?, ?, 1)",
-            (username, generate_password_hash(password), full_name, role),
+            "INSERT INTO users (username, password_hash, full_name, role, active, created_at) "
+            "VALUES (?, ?, ?, ?, 1, ?)",
+            (username, generate_password_hash(password), full_name, role, now_str()),
         )
         conn.commit()
         return jsonify({"id": cur.lastrowid}), 201

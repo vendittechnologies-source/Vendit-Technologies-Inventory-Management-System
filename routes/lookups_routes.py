@@ -3,7 +3,7 @@ from flask import Blueprint, request, jsonify
 
 from db.connection import get_connection
 from auth import require_auth, require_role
-from utils import rows_to_list
+from utils import rows_to_list, now_str
 
 captains_bp = Blueprint("captains_routes", __name__, url_prefix="/api/captains")
 teams_bp = Blueprint("teams_routes", __name__, url_prefix="/api/teams")
@@ -36,8 +36,8 @@ def _register_simple_lookup(bp, table, extra_columns):
         name = (data.get("name") or "").strip()
         if not name:
             return jsonify({"error": "Name is required."}), 400
-        cols = ["name"] + extra_columns
-        vals = [name] + [data.get(c) for c in extra_columns]
+        cols = ["name"] + extra_columns + ["created_at"]
+        vals = [name] + [data.get(c) for c in extra_columns] + [now_str()]
         placeholders = ", ".join(["?"] * len(cols))
         conn = get_connection()
         try:

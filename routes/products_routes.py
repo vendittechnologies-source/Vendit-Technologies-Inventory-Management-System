@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, g
 
 from db.connection import get_connection
 from auth import require_auth, require_role
-from utils import rows_to_list
+from utils import rows_to_list, now_str
 
 bp = Blueprint("products_routes", __name__, url_prefix="/api/products")
 
@@ -118,11 +118,12 @@ def create_product():
             if dup:
                 return jsonify({"error": "A product with that barcode already exists."}), 409
 
+        created = now_str()
         cur = conn.execute(
             """INSERT INTO products
                (sku, barcode, name, description, category, unit, cost_price, sell_price,
-                reorder_point, quantity_on_hand, default_supplier_id, active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+                reorder_point, quantity_on_hand, default_supplier_id, active, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
             (
                 data["sku"].strip(),
                 barcode,
@@ -135,6 +136,8 @@ def create_product():
                 int(data.get("reorder_point") or 0),
                 int(data.get("quantity_on_hand") or 0),
                 data.get("default_supplier_id"),
+                created,
+                created,
             ),
         )
         product_id = cur.lastrowid
@@ -143,9 +146,9 @@ def create_product():
         if opening_qty:
             conn.execute(
                 """INSERT INTO stock_transactions
-                   (product_id, type, reason, quantity, resulting_quantity, reference, notes, created_by)
-                   VALUES (?, 'in', 'adjustment', ?, ?, 'Opening balance', 'Initial stock when product was created', ?)""",
-                (product_id, opening_qty, opening_qty, g.user["id"]),
+                   (product_id, type, reason, quantity, resulting_quantity, reference, notes, created_by, created_at)
+                   VALUES (?, 'in', 'adjustment', ?, ?, 'Opening balance', 'Initial stock when product was created', ?, ?)""",
+                (product_id, opening_qty, opening_qty, g.user["id"], now_str()),
             )
         conn.commit()
         return jsonify({"id": product_id}), 201
@@ -180,7 +183,8 @@ def update_product(product_id):
         if not fields:
             return jsonify({"error": "Nothing to update."}), 400
 
-        fields.append("updated_at = datetime('now')")
+        fields.append("updated_at = ?")
+        params.append(now_str())
         params.append(product_id)
         conn.execute(f"UPDATE products SET {', '.join(fields)} WHERE id = ?", params)
         conn.commit()

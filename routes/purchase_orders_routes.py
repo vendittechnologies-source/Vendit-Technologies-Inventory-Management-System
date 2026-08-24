@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify, g
 
 from db.connection import get_connection
 from auth import require_auth, require_role
-from utils import ApiError, rows_to_list
+from utils import ApiError, rows_to_list, now_str, today_str
 from stock_ops import apply_stock_change
 
 bp = Blueprint("po_routes", __name__, url_prefix="/api/purchase-orders")
@@ -103,11 +103,12 @@ def create_po():
             return jsonify({"error": "Supplier not found."}), 404
 
         po_number = _next_po_number(conn)
+        created = now_str()
         cur = conn.execute(
             """INSERT INTO purchase_orders
-               (po_number, supplier_id, status, order_date, expected_date, notes, created_by)
-               VALUES (?, ?, 'draft', ?, ?, ?, ?)""",
-            (po_number, supplier_id, order_date, expected_date, notes, g.user["id"]),
+               (po_number, supplier_id, status, order_date, expected_date, notes, created_by, created_at, updated_at)
+               VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?)""",
+            (po_number, supplier_id, order_date, expected_date, notes, g.user["id"], created, created),
         )
         po_id = cur.lastrowid
 
@@ -149,8 +150,8 @@ def update_po_status(po_id):
             return jsonify({"error": f"Can't change status of a {po['status']} order."}), 400
 
         conn.execute(
-            "UPDATE purchase_orders SET status = ?, updated_at = datetime('now') WHERE id = ?",
-            (new_status, po_id),
+            "UPDATE purchase_orders SET status = ?, updated_at = ? WHERE id = ?",
+            (new_status, now_str(), po_id),
         )
         conn.commit()
         return jsonify(_po_with_items(conn, po_id))
@@ -206,9 +207,9 @@ def receive_po(po_id):
         new_status = "received" if fully_received else ("partially_received" if any_received else po["status"])
 
         conn.execute(
-            "UPDATE purchase_orders SET status = ?, received_date = CASE WHEN ? = 'received' THEN date('now') ELSE received_date END, "
-            "updated_at = datetime('now') WHERE id = ?",
-            (new_status, new_status, po_id),
+            "UPDATE purchase_orders SET status = ?, received_date = CASE WHEN ? = 'received' THEN ? ELSE received_date END, "
+            "updated_at = ? WHERE id = ?",
+            (new_status, new_status, today_str(), now_str(), po_id),
         )
         conn.commit()
         return jsonify(_po_with_items(conn, po_id))

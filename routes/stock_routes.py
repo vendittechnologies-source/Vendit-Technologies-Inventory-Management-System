@@ -139,10 +139,10 @@ def list_transactions():
         sql += " AND t.product_id = ?"
         params.append(product_id)
     if date_from:
-        sql += " AND date(t.created_at) >= date(?)"
+        sql += " AND substr(t.created_at, 1, 10) >= ?"
         params.append(date_from)
     if date_to:
-        sql += " AND date(t.created_at) <= date(?)"
+        sql += " AND substr(t.created_at, 1, 10) <= ?"
         params.append(date_to)
     sql += " ORDER BY t.created_at DESC, t.id DESC LIMIT 500"
 

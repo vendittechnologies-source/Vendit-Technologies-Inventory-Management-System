@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 
 from db.connection import get_connection
 from auth import require_auth
-from utils import rows_to_list
+from utils import rows_to_list, today_str
 
 bp = Blueprint("reports_routes", __name__, url_prefix="/api/reports")
 
@@ -29,7 +29,8 @@ def dashboard():
         ).fetchone()["n"]
         today_writeoffs = conn.execute(
             "SELECT COALESCE(SUM(quantity), 0) AS n FROM stock_transactions "
-            "WHERE reason IN ('damage','expiry') AND date(created_at) = date('now')"
+            "WHERE reason IN ('damage','expiry') AND substr(created_at, 1, 10) = ?",
+            (today_str(),),
         ).fetchone()["n"]
 
         recent = conn.execute(
@@ -104,10 +105,10 @@ def captain_summary():
     date_clause = ""
     params = []
     if date_from:
-        date_clause += " AND date(t.created_at) >= date(?)"
+        date_clause += " AND substr(t.created_at, 1, 10) >= ?"
         params.append(date_from)
     if date_to:
-        date_clause += " AND date(t.created_at) <= date(?)"
+        date_clause += " AND substr(t.created_at, 1, 10) <= ?"
         params.append(date_to)
 
     conn = get_connection()
@@ -143,10 +144,10 @@ def consumption_by_team():
     date_clause = ""
     params = []
     if date_from:
-        date_clause += " AND date(t.created_at) >= date(?)"
+        date_clause += " AND substr(t.created_at, 1, 10) >= ?"
         params.append(date_from)
     if date_to:
-        date_clause += " AND date(t.created_at) <= date(?)"
+        date_clause += " AND substr(t.created_at, 1, 10) <= ?"
         params.append(date_to)
 
     conn = get_connection()
