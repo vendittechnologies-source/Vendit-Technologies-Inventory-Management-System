@@ -3,7 +3,7 @@
 Every change to products.quantity_on_hand must go through here so that
 stock_transactions stays a complete, reliable audit trail.
 """
-from utils import ApiError
+from utils import ApiError, now_str
 
 
 def apply_stock_change(
@@ -43,17 +43,17 @@ def apply_stock_change(
             )
 
     conn.execute(
-        "UPDATE products SET quantity_on_hand = ?, updated_at = datetime('now') WHERE id = ?",
-        (new_qty, product_id),
+        "UPDATE products SET quantity_on_hand = ?, updated_at = ? WHERE id = ?",
+        (new_qty, now_str(), product_id),
     )
     conn.execute(
         """INSERT INTO stock_transactions
            (product_id, type, reason, quantity, resulting_quantity, captain_id, team_id,
-            purchase_order_id, captain_run_id, reference, notes, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            purchase_order_id, captain_run_id, reference, notes, created_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             product_id, direction, reason, quantity, new_qty, captain_id, team_id,
-            purchase_order_id, captain_run_id, reference, notes, created_by,
+            purchase_order_id, captain_run_id, reference, notes, created_by, now_str(),
         ),
     )
     return new_qty
